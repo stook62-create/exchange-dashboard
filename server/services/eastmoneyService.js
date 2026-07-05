@@ -1,49 +1,6 @@
-const API_BASE = 'https://push2.eastmoney.com/api/qt/stock/get'
+import { SYMBOLS } from '../config/symbols.js'
 
-export const SYMBOLS = [
-  {
-    code: '100.NDX',
-    displaySymbol: 'NDX',
-    name: '纳斯达克综合指数',
-    region: 'US',
-    currency: 'USD',
-  },
-  {
-    code: '100.SPX',
-    displaySymbol: 'SPX',
-    name: '标普 500',
-    region: 'US',
-    currency: 'USD',
-  },
-  {
-    code: '1.000001',
-    displaySymbol: 'SSE',
-    name: '上证指数',
-    region: 'CN',
-    currency: 'CNY',
-  },
-  {
-    code: '0.399006',
-    displaySymbol: 'ChiNext',
-    name: '创业板指',
-    region: 'CN',
-    currency: 'CNY',
-  },
-  {
-    code: '1.000688',
-    displaySymbol: 'STAR 50',
-    name: '科创 50',
-    region: 'CN',
-    currency: 'CNY',
-  },
-  {
-    code: '124.HSTECH',
-    displaySymbol: 'HSTECH',
-    name: '恒生科技指数',
-    region: 'HK',
-    currency: 'HKD',
-  },
-]
+const API_BASE = 'https://push2.eastmoney.com/api/qt/stock/get'
 
 const FIELDS = 'f43,f44,f45,f57,f58,f60,f170'
 

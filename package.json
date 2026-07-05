@@ -11,12 +11,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "express": "^4.21.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "express": "^4.21.2",
-    "yahoo-finance2": "^2.13.3",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7"
+    "yahoo-finance2": "^2.13.3"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",
