@@ -6,6 +6,7 @@ export const SYMBOLS = [
     region: 'US',
     currency: 'USD',
     tencent: 'usIXIC',
+    sina: '.ixic',
   },
   {
     code: '100.SPX',
@@ -14,6 +15,7 @@ export const SYMBOLS = [
     region: 'US',
     currency: 'USD',
     tencent: 'usINX',
+    sina: '.inx',
   },
   {
     code: '1.000001',

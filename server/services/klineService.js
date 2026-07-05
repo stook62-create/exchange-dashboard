@@ -1,7 +1,10 @@
 import { SYMBOLS } from '../config/symbols.js'
 
-const EASTMONEY_KLINE_URL = 'https://push2.eastmoney.com/api/qt/stock/kline/get'
-const TENCENT_KLINE_URL = 'http://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
+const EASTMONEY_HOSTS = ['push2his.eastmoney.com', 'push2.eastmoney.com']
+const TENCENT_FQKLINE_URL = 'http://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
+const TENCENT_MKLINE_URL = 'http://ifzq.gtimg.cn/appstock/app/kline/mkline'
+const TENCENT_MINUTE_URL = 'http://web.ifzq.gtimg.cn/appstock/app/minute/query'
+const SINA_DAILY_BASE = 'http://stock.finance.sina.com.cn/usstock/api/jsonp_v2.php'
 
 const PERIOD_TO_KLT = {
   intraday: '1',
@@ -17,7 +20,7 @@ const PERIOD_TO_TENCENT = {
 }
 
 const CACHE_TTL_MS = {
-  intraday: 60_000,
+  intraday: 30_000,
   daily: 300_000,
   weekly: 300_000,
   monthly: 300_000,
@@ -56,6 +59,7 @@ class HostThrottler {
 
 const eastmoneyThrottler = new HostThrottler(200)
 const tencentThrottler = new HostThrottler(200)
+const sinaThrottler = new HostThrottler(200)
 
 const cache = new Map()
 
@@ -94,10 +98,10 @@ function parseEastmoneyKlines(klines = []) {
   }).filter(Boolean)
 }
 
-function parseTencentKlines(rows = []) {
+function parseTencentFqkline(rows = []) {
   return rows.map((row) => {
     if (!Array.isArray(row) || row.length < 6) return null
-    // Tencent returns: [date, open, close, high, low, volume]
+    // Tencent fqkline returns: [date, open, close, high, low, volume]
     const [time, open, close, high, low, volume] = row
     return {
       time: String(time).trim(),
@@ -110,12 +114,48 @@ function parseTencentKlines(rows = []) {
   }).filter(Boolean)
 }
 
+function parseTencentMkline(rows = []) {
+  return rows.map((row) => {
+    if (!Array.isArray(row) || row.length < 6) return null
+    // Tencent mkline returns: [YYYYMMDDHHMM, open, close, high, low, volume, {}, amplitude]
+    const [time, open, close, high, low, volume] = row
+    const t = String(time).trim()
+    const hh = t.slice(-4, -2)
+    const mm = t.slice(-2)
+    return {
+      time: `${hh}:${mm}`,
+      open: Number(open),
+      high: Number(high),
+      low: Number(low),
+      close: Number(close),
+      volume: Number(volume),
+    }
+  }).filter(Boolean)
+}
+
+function parseTencentMinuteQuery(rows = []) {
+  return rows.map((row) => {
+    const parts = String(row).trim().split(/\s+/)
+    if (parts.length < 3) return null
+    const [time, price, volume] = parts
+    const t = String(time).padStart(4, '0')
+    return {
+      time: `${t.slice(0, 2)}:${t.slice(2)}`,
+      open: Number(price),
+      high: Number(price),
+      low: Number(price),
+      close: Number(price),
+      volume: Number(volume),
+    }
+  }).filter(Boolean)
+}
+
 async function fetchEastmoneyKline(secid, period, limit) {
   const klt = PERIOD_TO_KLT[period]
   if (!klt) throw new Error(`Unsupported period: ${period}`)
 
-  const url =
-    `${EASTMONEY_KLINE_URL}?` +
+  const path =
+    `/api/qt/stock/kline/get?` +
     `secid=${encodeURIComponent(secid)}` +
     `&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13` +
     `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
@@ -127,36 +167,148 @@ async function fetchEastmoneyKline(secid, period, limit) {
     `&ut=fa5fd1943c7b386f172d6893dbfba10b`
 
   return eastmoneyThrottler.run(async () => {
-    const res = await fetch(url, { headers: EASTMONEY_HEADERS })
-    if (!res.ok) throw new Error(`Eastmoney HTTP ${res.status}`)
-    const json = await res.json()
-    if (!json.data || !Array.isArray(json.data.klines)) {
-      throw new Error('Eastmoney returned no klines')
+    let lastErr = null
+    for (const host of EASTMONEY_HOSTS) {
+      try {
+        const res = await fetch(`http://${host}${path}`, { headers: EASTMONEY_HEADERS })
+        if (!res.ok) throw new Error(`Eastmoney HTTP ${res.status}`)
+        const json = await res.json()
+        if (!json.data || !Array.isArray(json.data.klines)) {
+          throw new Error('Eastmoney returned no klines')
+        }
+        const candles = parseEastmoneyKlines(json.data.klines)
+        if (candles.length === 0) throw new Error('Eastmoney klines empty')
+        return candles
+      } catch (err) {
+        lastErr = err
+      }
     }
-    const candles = parseEastmoneyKlines(json.data.klines)
-    if (candles.length === 0) throw new Error('Eastmoney klines empty')
+    throw lastErr || new Error('Eastmoney fetch failed')
+  })
+}
+
+async function fetchTencentFqkline(tencentCode, period, limit) {
+  const tencentPeriod = PERIOD_TO_TENCENT[period]
+  if (!tencentPeriod) throw new Error(`Tencent fqkline does not support period: ${period}`)
+
+  const url = `${TENCENT_FQKLINE_URL}?param=${tencentCode},${tencentPeriod},,,${limit},qfq`
+
+  return tencentThrottler.run(async () => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Tencent fqkline HTTP ${res.status}`)
+    const text = await res.text()
+    const json = text.startsWith('{') ? JSON.parse(text) : null
+    if (!json?.data?.[tencentCode]?.[tencentPeriod]) {
+      throw new Error('Tencent fqkline returned no klines')
+    }
+    const candles = parseTencentFqkline(json.data[tencentCode][tencentPeriod])
+    if (candles.length === 0) throw new Error('Tencent fqkline empty')
     return candles
   })
 }
 
-async function fetchTencentKline(tencentCode, period, limit) {
-  const tencentPeriod = PERIOD_TO_TENCENT[period]
-  if (!tencentPeriod) throw new Error(`Tencent does not support period: ${period}`)
-
-  const url = `${TENCENT_KLINE_URL}?param=${tencentCode},${tencentPeriod},,,${limit},qfq`
+async function fetchTencentMkline(tencentCode, limit = 320) {
+  const url = `${TENCENT_MKLINE_URL}?param=${tencentCode},m1,,${limit}`
 
   return tencentThrottler.run(async () => {
     const res = await fetch(url)
-    if (!res.ok) throw new Error(`Tencent HTTP ${res.status}`)
-    const text = await res.text()
-    const json = text.startsWith('{') ? JSON.parse(text) : null
-    if (!json?.data?.[tencentCode]?.[tencentPeriod]) {
-      throw new Error('Tencent returned no klines')
+    if (!res.ok) throw new Error(`Tencent mkline HTTP ${res.status}`)
+    const json = await res.json()
+    if (json.code !== 0 || !json.data?.[tencentCode]?.m1) {
+      throw new Error('Tencent mkline returned no data')
     }
-    const candles = parseTencentKlines(json.data[tencentCode][tencentPeriod])
-    if (candles.length === 0) throw new Error('Tencent klines empty')
+    const candles = parseTencentMkline(json.data[tencentCode].m1)
+    if (candles.length === 0) throw new Error('Tencent mkline empty')
     return candles
   })
+}
+
+async function fetchTencentMinuteQuery(tencentCode) {
+  const url = `${TENCENT_MINUTE_URL}?code=${tencentCode}`
+
+  return tencentThrottler.run(async () => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Tencent minute query HTTP ${res.status}`)
+    const json = await res.json()
+    const rows = json.data?.[tencentCode]?.data?.data
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('Tencent minute query returned no data')
+    }
+    return parseTencentMinuteQuery(rows)
+  })
+}
+
+async function fetchSinaDaily(sinaSymbol, limit) {
+  const callbackName = sinaSymbol.replace(/^\./, '')
+  const url = `${SINA_DAILY_BASE}/var_${callbackName}=/US_MinKService.getDailyK?symbol=${sinaSymbol}&_=2025_1_1&___qn=3`
+
+  return sinaThrottler.run(async () => {
+    const res = await fetch(url, {
+      headers: {
+        Referer: 'https://finance.sina.com.cn/',
+        'User-Agent': EASTMONEY_HEADERS['User-Agent'],
+      },
+    })
+    if (!res.ok) throw new Error(`Sina HTTP ${res.status}`)
+    const text = await res.text()
+    const cleaned = text.replace(/\/\*\s*<script>[\s\S]*?<\/script>\s*\*\//, '').trim()
+    const m = cleaned.match(/var_\w+=\(([\s\S]*?)\);?$/)
+    if (!m) throw new Error('Sina response format unexpected')
+    const rows = JSON.parse(m[1])
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('Sina returned no data')
+    }
+    const candles = rows.slice(-limit).map((r) => ({
+      time: r.d,
+      open: Number(r.o),
+      high: Number(r.h),
+      low: Number(r.l),
+      close: Number(r.c),
+      volume: Number(r.v),
+    }))
+    return candles
+  })
+}
+
+function getWeekKey(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  const year = d.getUTCFullYear()
+  // Sunday as first day of week
+  const start = new Date(Date.UTC(year, 0, 1))
+  const dayOffset = start.getUTCDay()
+  const msPerDay = 86400000
+  const weekNum = Math.floor((d.getTime() - start.getTime() + dayOffset * msPerDay) / (7 * msPerDay))
+  return `${year}-W${String(weekNum).padStart(2, '0')}`
+}
+
+function getMonthKey(dateStr) {
+  return dateStr.slice(0, 7)
+}
+
+function resample(candles, groupKeyFn) {
+  const groups = new Map()
+  for (const c of candles) {
+    const key = groupKeyFn(c.time)
+    if (!groups.has(key)) {
+      groups.set(key, [c])
+    } else {
+      groups.get(key).push(c)
+    }
+  }
+
+  const result = []
+  for (const [, group] of groups) {
+    group.sort((a, b) => a.time.localeCompare(b.time))
+    result.push({
+      time: group[0].time,
+      open: group[0].open,
+      high: Math.max(...group.map((c) => c.high)),
+      low: Math.min(...group.map((c) => c.low)),
+      close: group[group.length - 1].close,
+      volume: group.reduce((sum, c) => sum + c.volume, 0),
+    })
+  }
+  return result.sort((a, b) => a.time.localeCompare(b.time))
 }
 
 function makeEmptyResult(item, period, source, error) {
@@ -174,6 +326,94 @@ function makeEmptyResult(item, period, source, error) {
   }
 }
 
+async function fetchDailyWeeklyMonthly(item, period, limit) {
+  const cacheKey = getCacheKey(item.code, period, limit)
+  const cached = getCached(cacheKey)
+  if (cached) return { ...cached, cached: true }
+
+  const errors = []
+
+  // 1. For US indices, Sina daily is the most reliable source we found.
+  //    Resample daily bars to weekly/monthly when needed.
+  if (item.region === 'US' && item.sina) {
+    try {
+      const daily = await fetchSinaDaily(item.sina, 2000)
+      const candles = period === 'daily' ? daily.slice(-limit) : resample(daily, period === 'weekly' ? getWeekKey : getMonthKey).slice(-limit)
+      const result = makeEmptyResult(item, period, 'sina', null)
+      result.candles = candles
+      setCached(cacheKey, result, period)
+      return result
+    } catch (err) {
+      errors.push(`Sina: ${err.message}`)
+    }
+  }
+
+  // 2. Try Eastmoney for all regions (works well when network allows).
+  try {
+    const candles = await fetchEastmoneyKline(item.code, period, limit)
+    const result = makeEmptyResult(item, period, 'eastmoney', null)
+    result.candles = candles
+    setCached(cacheKey, result, period)
+    return result
+  } catch (err) {
+    errors.push(`Eastmoney: ${err.message}`)
+  }
+
+  // 3. Fallback to Tencent fqkline for non-US indices.
+  if (item.tencent && item.region !== 'US') {
+    try {
+      const candles = await fetchTencentFqkline(item.tencent, period, limit)
+      const result = makeEmptyResult(item, period, 'tencent', null)
+      result.candles = candles
+      setCached(cacheKey, result, period)
+      return result
+    } catch (err) {
+      errors.push(`Tencent: ${err.message}`)
+    }
+  }
+
+  const result = makeEmptyResult(item, period, 'none', errors.join('; '))
+  return result
+}
+
+async function fetchIntraday(item, limit = 320) {
+  const cacheKey = getCacheKey(item.code, 'intraday', limit)
+  const cached = getCached(cacheKey)
+  if (cached) return { ...cached, cached: true }
+
+  const errors = []
+  const isAshare = item.tencent && /^s[h|z]\d{6}$/i.test(item.tencent)
+
+  // 1. For A-share indices, Tencent mkline provides real 1-minute OHLCV.
+  if (isAshare) {
+    try {
+      const candles = await fetchTencentMkline(item.tencent, limit)
+      const result = makeEmptyResult(item, 'intraday', 'tencent-mkline', null)
+      result.candles = candles
+      setCached(cacheKey, result, 'intraday')
+      return result
+    } catch (err) {
+      errors.push(`Tencent mkline: ${err.message}`)
+    }
+  }
+
+  // 2. For HK/US and A-share fallback, use Tencent minute/query (price ticks).
+  if (item.tencent) {
+    try {
+      const candles = await fetchTencentMinuteQuery(item.tencent)
+      const result = makeEmptyResult(item, 'intraday', 'tencent-minute', null)
+      result.candles = candles
+      setCached(cacheKey, result, 'intraday')
+      return result
+    } catch (err) {
+      errors.push(`Tencent minute: ${err.message}`)
+    }
+  }
+
+  const result = makeEmptyResult(item, 'intraday', 'none', errors.join('; '))
+  return result
+}
+
 export async function fetchKline(symbol, period, limit = 120) {
   const item = SYMBOLS.find((s) => s.code === symbol)
   if (!item) {
@@ -182,44 +422,19 @@ export async function fetchKline(symbol, period, limit = 120) {
     throw err
   }
 
-  const cacheKey = getCacheKey(symbol, period, limit)
-  const cached = getCached(cacheKey)
-  if (cached) {
-    return { ...cached, cached: true }
+  if (period === 'intraday') {
+    return fetchIntraday(item, limit)
   }
 
-  // 1. Try Eastmoney first
-  try {
-    const candles = await fetchEastmoneyKline(item.code, period, limit)
-    const result = makeEmptyResult(item, period, 'eastmoney', null)
-    result.candles = candles
-    setCached(cacheKey, result, period)
-    return result
-  } catch (emErr) {
-    // 2. Fallback to Tencent for daily/weekly/monthly only
-    if (PERIOD_TO_TENCENT[period] && item.tencent) {
-      try {
-        const candles = await fetchTencentKline(item.tencent, period, limit)
-        const result = makeEmptyResult(item, period, 'tencent', null)
-        result.candles = candles
-        setCached(cacheKey, result, period)
-        return result
-      } catch (txErr) {
-        const result = makeEmptyResult(
-          item,
-          period,
-          'none',
-          `Eastmoney: ${emErr.message}; Tencent: ${txErr.message}`,
-        )
-        return result
-      }
-    }
-
-    const result = makeEmptyResult(item, period, 'none', `Eastmoney: ${emErr.message}`)
-    return result
+  if (!PERIOD_TO_TENCENT[period]) {
+    const err = new Error(`period must be one of daily, weekly, monthly, intraday`)
+    err.statusCode = 400
+    throw err
   }
+
+  return fetchDailyWeeklyMonthly(item, period, limit)
 }
 
-export async function fetchIntradayKline(symbol, limit = 240) {
+export async function fetchIntradayKline(symbol, limit = 320) {
   return fetchKline(symbol, 'intraday', limit)
 }
