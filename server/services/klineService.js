@@ -140,11 +140,13 @@ function parseTencentMkline(rows = []) {
   return rows.map((row) => {
     if (!Array.isArray(row) || row.length < 6) return null
     // Tencent mkline returns: [YYYYMMDDHHMM, open, close, high, low, volume, {}, amplitude]
-    const [time, open, close, high, low, volume] = row
-    const t = String(time).trim()
+    const [rawTime, open, close, high, low, volume] = row
+    const t = String(rawTime).trim()
+    const date = t.slice(0, 8)
     const hh = t.slice(-4, -2)
     const mm = t.slice(-2)
     return {
+      date,
       time: `${hh}:${mm}`,
       open: Number(open),
       high: Number(high),
@@ -522,8 +524,13 @@ async function fetchIntraday(item, limit = 320) {
   // 1. For A-share symbols, Tencent mkline provides real 1-minute OHLCV.
   if (isAshare) {
     try {
-      candles = await fetchTencentMkline(item.tencent, limit)
-      source = 'tencent-mkline'
+      const rawCandles = await fetchTencentMkline(item.tencent, limit)
+      if (rawCandles.length > 0) {
+        // mkline may return candles from multiple trading days; keep only the latest day.
+        const latestDate = rawCandles[rawCandles.length - 1].date
+        candles = rawCandles.filter((c) => c.date === latestDate)
+        source = 'tencent-mkline'
+      }
     } catch (err) {
       errors.push(`Tencent mkline: ${err.message}`)
     }

@@ -30,6 +30,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
       - name: Build
         run: npm run build
         env:
@@ -37,7 +40,7 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v5.0.0
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
