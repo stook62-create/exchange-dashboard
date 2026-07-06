@@ -1,5 +1,6 @@
 import { TextDecoder } from 'util'
 import { SYMBOLS } from '../config/symbols.js'
+import { parseSymbol } from '../utils/parseSymbol.js'
 
 const API_BASE = 'https://push2.eastmoney.com/api/qt/stock/get'
 const TENCENT_QUOTE_URL = 'https://qt.gtimg.cn/q='
@@ -18,6 +19,18 @@ function parseScaled(value, digits = 2) {
   return Number((num / Math.pow(10, digits)).toFixed(digits))
 }
 
+function resolveSymbol(symbol) {
+  const configured = SYMBOLS.find((s) => s.code === symbol)
+  if (configured) return configured
+  const parsed = parseSymbol(symbol)
+  if (!parsed) {
+    const err = new Error(`Symbol ${symbol} not found`)
+    err.statusCode = 404
+    throw err
+  }
+  return parsed
+}
+
 async function fetchSingle(item) {
   const url = `${API_BASE}?secid=${encodeURIComponent(item.code)}&fields=${FIELDS}`
   try {
@@ -30,8 +43,10 @@ async function fetchSingle(item) {
     if (!data) {
       throw new Error('No data returned')
     }
-    const price = parseScaled(data.f43, 2)
-    const prevClose = parseScaled(data.f60, 2)
+    const isUsStock = item.region === 'US' && (item.code.startsWith('105.') || item.code.startsWith('106.'))
+    const priceDigits = isUsStock ? 3 : 2
+    const price = parseScaled(data.f43, priceDigits)
+    const prevClose = parseScaled(data.f60, priceDigits)
     const change = price !== null && prevClose !== null ? Number((price - prevClose).toFixed(2)) : null
     const changePercent = parseScaled(data.f170, 2)
     return {
@@ -165,14 +180,13 @@ export async function fetchAllQuotes() {
 }
 
 export async function fetchQuoteBySymbol(symbol) {
-  const target = SYMBOLS.find((s) => s.code === symbol)
-  if (!target) {
-    throw new Error(`Symbol ${symbol} not found`)
-  }
+  const target = resolveSymbol(symbol)
   const result = await fetchSingle(target)
   if (result.marketState !== 'ERROR') return result
 
   const tencentMap = await fetchTencentBatch([target])
-  if (tencentMap.has(symbol)) return tencentMap.get(symbol)
+  if (tencentMap.has(symbol) || tencentMap.has(target.code)) {
+    return tencentMap.get(symbol) || tencentMap.get(target.code)
+  }
   return result
 }

@@ -23,7 +23,7 @@ function formatPercent(value) {
   return `${sign}${formatNumber(value, 2)}%`
 }
 
-export default function QuoteCard({ quote, onClick }) {
+export default function QuoteCard({ quote, onClick, onDragStart, onDragOver, onDrop }) {
   const isUp = quote.changePercent > 0
   const isDown = quote.changePercent < 0
   const colorClass = isUp ? 'text-up' : isDown ? 'text-down' : 'text-slate-500'
@@ -43,14 +43,35 @@ export default function QuoteCard({ quote, onClick }) {
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick?.()
       }}
+      onDragOver={onDragOver}
+      onDrop={(e) => onDrop?.(quote.symbol, e)}
       className="cursor-pointer rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100 transition hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-400"
     >
       <div className="flex items-start justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-900">{quote.name}</h3>
-          <p className="text-sm text-slate-500">
-            {quote.displaySymbol} · {quote.region} · {quote.currency}
-          </p>
+        <div className="flex items-start gap-2">
+          <button
+            type="button"
+            draggable
+            onClick={(e) => e.stopPropagation()}
+            onDragStart={(e) => onDragStart?.(quote.symbol, e)}
+            className="mt-1 cursor-grab text-slate-300 hover:text-slate-500 active:cursor-grabbing"
+            aria-label="拖动排序"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+              <circle cx="9" cy="6" r="2" />
+              <circle cx="15" cy="6" r="2" />
+              <circle cx="9" cy="12" r="2" />
+              <circle cx="15" cy="12" r="2" />
+              <circle cx="9" cy="18" r="2" />
+              <circle cx="15" cy="18" r="2" />
+            </svg>
+          </button>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900">{quote.name}</h3>
+            <p className="text-sm text-slate-500">
+              {quote.displaySymbol} · {quote.region} · {quote.currency}
+            </p>
+          </div>
         </div>
         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
           {quote.marketState}

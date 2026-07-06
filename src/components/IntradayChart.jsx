@@ -1,4 +1,5 @@
 import ReactECharts from 'echarts-for-react'
+import { alignIntradayData } from '../utils/marketHours.js'
 
 export default function IntradayChart({ data, changePercent }) {
   if (!data || data.candles.length === 0) {
@@ -9,13 +10,27 @@ export default function IntradayChart({ data, changePercent }) {
     )
   }
 
-  const times = data.candles.map((c) => c.time)
-  const closes = data.candles.map((c) => c.close)
-  const firstClose = closes[0]
-  const lastClose = closes[closes.length - 1]
+  const region = data.region || 'US'
+  const { categories, values } = alignIntradayData(data.candles, region)
+  const nonNullValues = values.filter((v) => v != null)
+
+  if (nonNullValues.length === 0) {
+    return (
+      <div className="mt-3 flex h-16 items-center justify-center rounded-lg bg-slate-50 text-xs text-slate-400">
+        暂无分时数据
+      </div>
+    )
+  }
+
+  const firstClose = nonNullValues[0]
+  const lastClose = nonNullValues[nonNullValues.length - 1]
   const isUp = lastClose >= firstClose
   const lineColor =
     changePercent > 0 ? '#ef4444' : changePercent < 0 ? '#22c55e' : '#64748b'
+
+  const minValue = Math.min(...nonNullValues)
+  const maxValue = Math.max(...nonNullValues)
+  const padding = maxValue === minValue ? Math.abs(minValue) * 0.01 || 1 : (maxValue - minValue) * 0.05
 
   const option = {
     animation: false,
@@ -27,29 +42,32 @@ export default function IntradayChart({ data, changePercent }) {
     },
     xAxis: {
       type: 'category',
-      data: times,
+      data: categories,
       show: false,
     },
     yAxis: {
       type: 'value',
       show: false,
       scale: true,
-      min: Math.min(...closes) * 0.999,
-      max: Math.max(...closes) * 1.001,
+      min: minValue - padding,
+      max: maxValue + padding,
     },
     tooltip: {
       trigger: 'axis',
       formatter: (params) => {
         const p = params[0]
-        return `${p.name}<br/>收盘: ${p.value.toFixed(2)}`
+        const value = p.value
+        if (value == null) return `${p.name}`
+        return `${p.name}<br/>收盘: ${Number(value).toFixed(2)}`
       },
     },
     series: [
       {
         type: 'line',
-        data: closes,
+        data: values,
         smooth: true,
         showSymbol: false,
+        connectNulls: false,
         lineStyle: {
           color: lineColor,
           width: 2,

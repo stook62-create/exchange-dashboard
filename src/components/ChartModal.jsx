@@ -32,7 +32,12 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
 
     const times = data.candles.map((c) => c.time)
     const candleData = data.candles.map((c) => [c.open, c.close, c.low, c.high])
-    const volumes = data.candles.map((c) => c.volume)
+    const volumeData = data.candles.map((c) => ({
+      value: c.volume,
+      itemStyle: {
+        color: c.close >= c.open ? '#ef4444' : '#22c55e',
+      },
+    }))
 
     return {
       animation: true,
@@ -41,15 +46,25 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
         axisPointer: { type: 'cross' },
         formatter: (params) => {
           const candle = params.find((p) => p.seriesName === 'K线')
+          const volume = params.find((p) => p.seriesName === '成交量')
           if (!candle) return ''
           const [open, close, low, high] = candle.data
-          return [
+          const lines = [
             candle.name,
             `开: ${open.toFixed(2)}`,
             `收: ${close.toFixed(2)}`,
             `高: ${high.toFixed(2)}`,
             `低: ${low.toFixed(2)}`,
-          ].join('<br/>')
+          ]
+          if (volume && volume.data != null) {
+            const v = typeof volume.data === 'object' ? volume.data.value : volume.data
+            let formatted = String(v)
+            if (v >= 1e9) formatted = `${(v / 1e9).toFixed(2)}B`
+            else if (v >= 1e6) formatted = `${(v / 1e6).toFixed(2)}M`
+            else if (v >= 1e3) formatted = `${(v / 1e3).toFixed(2)}K`
+            lines.push(`成交量: ${formatted}`)
+          }
+          return lines.join('<br/>')
         },
       },
       grid: [
@@ -84,7 +99,16 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
           scale: true,
           gridIndex: 1,
           splitNumber: 2,
-          axisLabel: { show: false },
+          axisLabel: {
+            show: true,
+            fontSize: 10,
+            formatter: (value) => {
+              if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`
+              if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`
+              if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`
+              return value
+            },
+          },
           axisLine: { show: false },
           axisTick: { show: false },
           splitLine: { show: false },
@@ -116,10 +140,7 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
           type: 'bar',
           xAxisIndex: 1,
           yAxisIndex: 1,
-          data: volumes,
-          itemStyle: {
-            color: '#94a3b8',
-          },
+          data: volumeData,
         },
       ],
     }

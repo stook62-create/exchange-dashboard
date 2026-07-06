@@ -1,4 +1,5 @@
 import { SYMBOLS } from '../config/symbols.js'
+import { parseSymbol } from '../utils/parseSymbol.js'
 
 const EASTMONEY_HOSTS = ['push2his.eastmoney.com', 'push2.eastmoney.com']
 const TENCENT_FQKLINE_URL = 'http://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
@@ -359,8 +360,8 @@ async function fetchDailyWeeklyMonthly(item, period, limit) {
     errors.push(`Eastmoney: ${err.message}`)
   }
 
-  // 3. Fallback to Tencent fqkline for non-US indices.
-  if (item.tencent && item.region !== 'US') {
+  // 3. Fallback to Tencent fqkline for any symbol with a tencent code.
+  if (item.tencent) {
     try {
       const candles = await fetchTencentFqkline(item.tencent, period, limit)
       const result = makeEmptyResult(item, period, 'tencent', null)
@@ -414,13 +415,20 @@ async function fetchIntraday(item, limit = 320) {
   return result
 }
 
-export async function fetchKline(symbol, period, limit = 120) {
-  const item = SYMBOLS.find((s) => s.code === symbol)
-  if (!item) {
+function resolveSymbol(symbol) {
+  const configured = SYMBOLS.find((s) => s.code === symbol)
+  if (configured) return configured
+  const parsed = parseSymbol(symbol)
+  if (!parsed) {
     const err = new Error(`Symbol ${symbol} not found`)
     err.statusCode = 404
     throw err
   }
+  return parsed
+}
+
+export async function fetchKline(symbol, period, limit = 120) {
+  const item = resolveSymbol(symbol)
 
   if (period === 'intraday') {
     return fetchIntraday(item, limit)
