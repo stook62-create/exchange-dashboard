@@ -258,10 +258,16 @@ async function fetchTencentFqkline(tencentCode, period, limit) {
     if (!res.ok) throw new Error(`Tencent fqkline HTTP ${res.status}`)
     const text = await res.text()
     const json = text.startsWith('{') ? JSON.parse(text) : null
-    if (!json?.data?.[tencentCode]?.[tencentPeriod]) {
+    const periodData = json?.data?.[tencentCode]
+    if (!periodData) {
       throw new Error('Tencent fqkline returned no klines')
     }
-    const candles = parseTencentFqkline(json.data[tencentCode][tencentPeriod])
+    // Individual stocks return qfqday/qfqweek/qfqmonth, indices return day/week/month.
+    const rows = periodData[`qfq${tencentPeriod}`] || periodData[tencentPeriod]
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('Tencent fqkline returned no klines')
+    }
+    const candles = parseTencentFqkline(rows)
     if (candles.length === 0) throw new Error('Tencent fqkline empty')
     return candles
   })
