@@ -23,7 +23,7 @@ function formatPercent(value) {
   return `${sign}${formatNumber(value, 2)}%`
 }
 
-export default function QuoteCard({ quote, onClick, onDragStart, onDragOver, onDrop }) {
+export default function QuoteCard({ quote, onClick, onDragStart, onDragOver, onDrop, onRemove }) {
   const isUp = quote.changePercent > 0
   const isDown = quote.changePercent < 0
   const colorClass = isUp ? 'text-up' : isDown ? 'text-down' : 'text-slate-500'
@@ -73,9 +73,27 @@ export default function QuoteCard({ quote, onClick, onDragStart, onDragOver, onD
             </p>
           </div>
         </div>
-        <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-          {quote.marketState}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+            {quote.marketState}
+          </span>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+              className="rounded-full p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
+              aria-label="删除"
+              title="删除"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-4">

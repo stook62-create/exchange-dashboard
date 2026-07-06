@@ -180,6 +180,11 @@ export default function QuoteGrid() {
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
+            onRemove={
+              customSymbols.includes(quote.symbol)
+                ? () => handleRemoveCustom(quote.symbol)
+                : undefined
+            }
           />
         ))}
       </div>

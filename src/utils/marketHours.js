@@ -60,7 +60,6 @@ export function getCurrentMarketTime(region) {
 
 export function alignIntradayData(candles, region) {
   const categories = getMarketSlots(region)
-  const currentTime = getCurrentMarketTime(region)
   const valueMap = new Map()
   for (const c of candles) {
     if (c.time && !valueMap.has(c.time)) {
@@ -68,10 +67,17 @@ export function alignIntradayData(candles, region) {
     }
   }
 
+  // Determine the latest time that actually has data within today's session.
+  // After market close this will be the last data point (e.g. 15:00 / 16:00),
+  // and during the session it will be roughly the current time.
+  const latestTime = categories.reduce((latest, slot) => {
+    return valueMap.has(slot) && slot > latest ? slot : latest
+  }, '')
+
   const values = categories.map((slot) => {
-    if (slot > currentTime) return null
+    if (slot > latestTime) return null
     return valueMap.has(slot) ? valueMap.get(slot) : null
   })
 
-  return { categories, values }
+  return { categories, values, latestTime }
 }
