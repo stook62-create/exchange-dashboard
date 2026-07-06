@@ -28,7 +28,7 @@ export default function QuoteCard({ quote, onClick, onDragStart, onDragOver, onD
   const isDown = quote.changePercent < 0
   const colorClass = isUp ? 'text-up' : isDown ? 'text-down' : 'text-slate-500'
 
-  const fetcher = useMemo(() => (sym) => fetchIntradayKline(sym, 120), [])
+  const fetcher = useMemo(() => (sym) => fetchIntradayKline(sym, 400), [])
   const { data: intradayData, loading: intradayLoading } = useKline(
     fetcher,
     quote.symbol,
