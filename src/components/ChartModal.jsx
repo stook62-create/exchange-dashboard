@@ -2,11 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { fetchKline } from '../services/api.js'
 import { useKline } from '../hooks/useKline.js'
+import { computeMA } from '../utils/ma.js'
 
 const PERIODS = [
   { key: 'daily', label: '日线' },
   { key: 'weekly', label: '周线' },
   { key: 'monthly', label: '月线' },
+]
+
+const MA_PERIODS = [
+  { key: 'MA5', period: 5, color: '#3b82f6' },
+  { key: 'MA10', period: 10, color: '#f59e0b' },
+  { key: 'MA20', period: 20, color: '#8b5cf6' },
+  { key: 'MA60', period: 60, color: '#64748b' },
 ]
 
 export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
@@ -39,14 +47,28 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
       },
     }))
 
+    const maSeries = MA_PERIODS.map(({ key, period, color }) => ({
+      name: key,
+      type: 'line',
+      data: computeMA(data.candles, period),
+      smooth: false,
+      symbol: 'none',
+      lineStyle: { width: 1.5, color },
+      itemStyle: { color },
+    }))
+
     return {
       animation: true,
+      legend: {
+        data: ['K线', ...MA_PERIODS.map((m) => m.key), '成交量'],
+        top: '2%',
+        textStyle: { color: '#475569' },
+      },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'cross' },
         formatter: (params) => {
           const candle = params.find((p) => p.seriesName === 'K线')
-          const volume = params.find((p) => p.seriesName === '成交量')
           if (!candle) return ''
           const [open, close, low, high] = candle.data
           const lines = [
@@ -56,6 +78,8 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
             `高: ${high.toFixed(2)}`,
             `低: ${low.toFixed(2)}`,
           ]
+
+          const volume = params.find((p) => p.seriesName === '成交量')
           if (volume && volume.data != null) {
             const v = typeof volume.data === 'object' ? volume.data.value : volume.data
             let formatted = String(v)
@@ -64,11 +88,19 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
             else if (v >= 1e3) formatted = `${(v / 1e3).toFixed(2)}K`
             lines.push(`成交量: ${formatted}`)
           }
+
+          MA_PERIODS.forEach(({ key }) => {
+            const ma = params.find((p) => p.seriesName === key)
+            if (ma && ma.data != null) {
+              lines.push(`${key}: ${Number(ma.data).toFixed(2)}`)
+            }
+          })
+
           return lines.join('<br/>')
         },
       },
       grid: [
-        { left: '10%', right: '4%', top: '10%', height: '62%' },
+        { left: '10%', right: '4%', top: '14%', height: '58%' },
         { left: '10%', right: '4%', top: '76%', height: '12%' },
       ],
       xAxis: [
@@ -135,6 +167,7 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
             borderColor0: '#22c55e',
           },
         },
+        ...maSeries,
         {
           name: '成交量',
           type: 'bar',

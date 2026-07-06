@@ -1,5 +1,6 @@
 import { SYMBOLS } from '../config/symbols.js'
 import { parseSymbol } from '../utils/parseSymbol.js'
+import { isMarketOpen } from '../utils/marketHours.js'
 
 const EASTMONEY_HOSTS = ['push2his.eastmoney.com', 'push2.eastmoney.com']
 const TENCENT_FQKLINE_URL = 'http://web.ifzq.gtimg.cn/appstock/app/fqkline/get'
@@ -99,6 +100,23 @@ function parseEastmoneyKlines(klines = []) {
   }).filter(Boolean)
 }
 
+function parseEastmoneyIntradayKlines(klines = []) {
+  return klines.map((row) => {
+    const parts = String(row).split(',')
+    if (parts.length < 6) return null
+    const [datetime, open, close, high, low, volume] = parts
+    const time = datetime.trim().split(' ')[1] || datetime.trim()
+    return {
+      time,
+      open: Number(open),
+      high: Number(high),
+      low: Number(low),
+      close: Number(close),
+      volume: Number(volume),
+    }
+  }).filter(Boolean)
+}
+
 function parseTencentFqkline(rows = []) {
   return rows.map((row) => {
     if (!Array.isArray(row) || row.length < 6) return null
@@ -185,6 +203,44 @@ async function fetchEastmoneyKline(secid, period, limit) {
       }
     }
     throw lastErr || new Error('Eastmoney fetch failed')
+  })
+}
+
+async function fetchEastmoneyIntraday(secid, dateStr) {
+  const klt = PERIOD_TO_KLT.intraday
+  if (!klt) throw new Error('Unsupported intraday period')
+
+  const date = String(dateStr).replace(/-/g, '')
+  const path =
+    `/api/qt/stock/kline/get?` +
+    `secid=${encodeURIComponent(secid)}` +
+    `&fields1=f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13` +
+    `&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61` +
+    `&klt=${klt}` +
+    `&fqt=0` +
+    `&beg=${date}` +
+    `&end=${date}` +
+    `&lmt=1000` +
+    `&ut=fa5fd1943c7b386f172d6893dbfba10b`
+
+  return eastmoneyThrottler.run(async () => {
+    let lastErr = null
+    for (const host of EASTMONEY_HOSTS) {
+      try {
+        const res = await fetch(`http://${host}${path}`, { headers: EASTMONEY_HEADERS })
+        if (!res.ok) throw new Error(`Eastmoney HTTP ${res.status}`)
+        const json = await res.json()
+        if (!json.data || !Array.isArray(json.data.klines)) {
+          throw new Error('Eastmoney returned no klines')
+        }
+        const candles = parseEastmoneyIntradayKlines(json.data.klines)
+        if (candles.length === 0) throw new Error('Eastmoney intraday empty')
+        return candles
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr || new Error('Eastmoney intraday fetch failed')
   })
 }
 
@@ -384,31 +440,54 @@ async function fetchIntraday(item, limit = 320) {
 
   const errors = []
   const isAshare = item.tencent && /^s[h|z]\d{6}$/i.test(item.tencent)
+  let candles = null
+  let source = 'none'
 
-  // 1. For A-share indices, Tencent mkline provides real 1-minute OHLCV.
+  // 1. For A-share symbols, Tencent mkline provides real 1-minute OHLCV.
   if (isAshare) {
     try {
-      const candles = await fetchTencentMkline(item.tencent, limit)
-      const result = makeEmptyResult(item, 'intraday', 'tencent-mkline', null)
-      result.candles = candles
-      setCached(cacheKey, result, 'intraday')
-      return result
+      candles = await fetchTencentMkline(item.tencent, limit)
+      source = 'tencent-mkline'
     } catch (err) {
       errors.push(`Tencent mkline: ${err.message}`)
     }
   }
 
   // 2. For HK/US and A-share fallback, use Tencent minute/query (price ticks).
-  if (item.tencent) {
+  if (!candles && item.tencent) {
     try {
-      const candles = await fetchTencentMinuteQuery(item.tencent)
-      const result = makeEmptyResult(item, 'intraday', 'tencent-minute', null)
-      result.candles = candles
-      setCached(cacheKey, result, 'intraday')
-      return result
+      candles = await fetchTencentMinuteQuery(item.tencent)
+      source = 'tencent-minute'
     } catch (err) {
       errors.push(`Tencent minute: ${err.message}`)
     }
+  }
+
+  // 3. Outside market hours, if current session data is sparse/empty,
+  //    fetch the most recent trading day's 1-minute data from Eastmoney.
+  if (!candles || candles.length < 30) {
+    if (!isMarketOpen(item.region)) {
+      try {
+        const daily = await fetchEastmoneyKline(item.code, 'daily', 5)
+        const lastCandle = daily[daily.length - 1]
+        if (lastCandle?.time) {
+          const hist = await fetchEastmoneyIntraday(item.code, lastCandle.time)
+          if (hist.length > 0) {
+            candles = hist
+            source = 'eastmoney-historical'
+          }
+        }
+      } catch (err) {
+        errors.push(`Eastmoney historical: ${err.message}`)
+      }
+    }
+  }
+
+  if (candles && candles.length > 0) {
+    const result = makeEmptyResult(item, 'intraday', source, null)
+    result.candles = candles
+    setCached(cacheKey, result, 'intraday')
+    return result
   }
 
   const result = makeEmptyResult(item, 'intraday', 'none', errors.join('; '))
