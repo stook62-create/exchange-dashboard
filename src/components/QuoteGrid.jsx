@@ -11,6 +11,15 @@ const MAX_CUSTOM_SYMBOLS = 3
 
 const VALID_INPUT_RE = /^[A-Za-z0-9.]+$/
 
+const DEFAULT_CARD_ORDER = [
+  '1.000001',   // 上证指数
+  '0.399006',   // 创业板指
+  '1.000688',   // 科创50
+  '124.HSTECH', // 恒生科技指数
+  '100.NDX',    // 纳斯达克
+  '100.SPX',    // 标普500
+]
+
 export default function QuoteGrid() {
   const { quotes, loading, error, lastUpdated } = useQuotes()
   const [selectedSymbol, setSelectedSymbol] = useState(null)
@@ -62,7 +71,7 @@ export default function QuoteGrid() {
 
   const allQuotes = useMemo(() => [...quotes, ...customQuotes], [quotes, customQuotes])
   const allSymbols = useMemo(() => allQuotes.map((q) => q.symbol), [allQuotes])
-  const { orderedSymbols, moveSymbol } = useCardOrder(allSymbols)
+  const { orderedSymbols, moveSymbol } = useCardOrder(allSymbols, DEFAULT_CARD_ORDER)
 
   const orderedQuotes = useMemo(() => {
     const quoteMap = new Map(allQuotes.map((q) => [q.symbol, q]))

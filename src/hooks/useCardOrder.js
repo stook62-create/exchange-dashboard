@@ -1,20 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 
-const ORDER_KEY = 'exchange-dashboard:cardOrder'
+const ORDER_KEY = 'exchange-dashboard:cardOrder:v2'
 
-export function useCardOrder(symbols) {
+export function useCardOrder(symbols, defaultOrder = []) {
   const [order, setOrder] = useState([])
 
-  // Load saved order once on mount.
+  // Load saved order once on mount; fall back to the provided default order.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(ORDER_KEY)
-      const saved = raw ? JSON.parse(raw) : []
-      if (Array.isArray(saved)) {
+      const saved = raw ? JSON.parse(raw) : null
+      if (Array.isArray(saved) && saved.length > 0) {
         setOrder(saved.filter(Boolean))
+      } else {
+        setOrder(defaultOrder.filter(Boolean))
       }
     } catch {
-      setOrder([])
+      setOrder(defaultOrder.filter(Boolean))
     }
   }, [])
 

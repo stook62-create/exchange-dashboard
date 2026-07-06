@@ -45,7 +45,10 @@ class HostThrottler {
   }
 
   async run(fn) {
-    this.queue = this.queue.then(async () => {
+    const previous = this.queue
+    this.queue = (async () => {
+      // Wait for the previous task but swallow its error so the queue stays alive.
+      await previous.catch(() => {})
       const now = Date.now()
       const wait = Math.max(0, this.minGapMs - (now - this.lastTime))
       if (wait > 0) await sleep(wait)
@@ -54,7 +57,7 @@ class HostThrottler {
       } finally {
         this.lastTime = Date.now()
       }
-    })
+    })()
     return this.queue
   }
 }
@@ -433,6 +436,73 @@ async function fetchDailyWeeklyMonthly(item, period, limit) {
   return result
 }
 
+function getYahooSymbol(item) {
+  const known = {
+    '100.NDX': '^IXIC',
+    '100.SPX': '^GSPC',
+  }
+  if (known[item.code]) return known[item.code]
+  if (item.region === 'US') return item.displaySymbol
+  return null
+}
+
+function formatYahooTime(timestampSec, timezone) {
+  const d = new Date(timestampSec * 1000)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const parts = formatter.formatToParts(d)
+  const get = (type) => parts.find((p) => p.type === type)?.value
+  return `${get('hour')}:${get('minute')}`
+}
+
+async function fetchYahooIntraday(item) {
+  const yahooSymbol = getYahooSymbol(item)
+  if (!yahooSymbol) return []
+
+  const timezone = item.region === 'US' ? 'America/New_York' : 'Asia/Hong_Kong'
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/` +
+    `${encodeURIComponent(yahooSymbol)}?interval=1m&range=1d&includePrePost=false`
+
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  })
+  if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`)
+  const json = await res.json()
+  const result = json.chart?.result?.[0]
+  if (!result) throw new Error('Yahoo returned no chart result')
+
+  const timestamps = result.timestamp || []
+  const quote = result.indicators?.quote?.[0]
+  const closes = quote?.close || []
+  const opens = quote?.open || []
+  const highs = quote?.high || []
+  const lows = quote?.low || []
+  const volumes = quote?.volume || []
+
+  const candles = []
+  for (let i = 0; i < timestamps.length; i++) {
+    const close = closes[i]
+    if (close == null) continue
+    const time = formatYahooTime(timestamps[i], timezone)
+    candles.push({
+      time,
+      open: opens[i] ?? close,
+      high: highs[i] ?? close,
+      low: lows[i] ?? close,
+      close,
+      volume: volumes[i] ?? 0,
+    })
+  }
+  return candles
+}
+
 async function fetchIntraday(item, limit = 320) {
   const cacheKey = getCacheKey(item.code, 'intraday', limit)
   const cached = getCached(cacheKey)
@@ -464,7 +534,8 @@ async function fetchIntraday(item, limit = 320) {
   }
 
   // 3. Outside market hours, if current session data is sparse/empty,
-  //    fetch the most recent trading day's 1-minute data from Eastmoney.
+  //    fetch the most recent trading day's 1-minute data from Eastmoney (CN)
+  //    or Yahoo Finance (US).
   if (!candles || candles.length < 30) {
     if (!isMarketOpen(item.region)) {
       try {
@@ -479,6 +550,18 @@ async function fetchIntraday(item, limit = 320) {
         }
       } catch (err) {
         errors.push(`Eastmoney historical: ${err.message}`)
+      }
+
+      if (!candles || candles.length < 30) {
+        try {
+          const hist = await fetchYahooIntraday(item)
+          if (hist.length > 0) {
+            candles = hist
+            source = 'yahoo-historical'
+          }
+        } catch (err) {
+          errors.push(`Yahoo historical: ${err.message}`)
+        }
       }
     }
   }

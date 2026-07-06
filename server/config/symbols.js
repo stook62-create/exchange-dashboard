@@ -1,23 +1,5 @@
 export const SYMBOLS = [
   {
-    code: '100.NDX',
-    displaySymbol: 'NDX',
-    name: '纳斯达克',
-    region: 'US',
-    currency: 'USD',
-    tencent: 'usIXIC',
-    sina: '.ixic',
-  },
-  {
-    code: '100.SPX',
-    displaySymbol: 'SPX',
-    name: '标普500',
-    region: 'US',
-    currency: 'USD',
-    tencent: 'usINX',
-    sina: '.inx',
-  },
-  {
     code: '1.000001',
     displaySymbol: 'SSE',
     name: '上证指数',
@@ -48,5 +30,23 @@ export const SYMBOLS = [
     region: 'HK',
     currency: 'HKD',
     tencent: 'hkHSTECH',
+  },
+  {
+    code: '100.NDX',
+    displaySymbol: 'NDX',
+    name: '纳斯达克',
+    region: 'US',
+    currency: 'USD',
+    tencent: 'usIXIC',
+    sina: '.ixic',
+  },
+  {
+    code: '100.SPX',
+    displaySymbol: 'SPX',
+    name: '标普500',
+    region: 'US',
+    currency: 'USD',
+    tencent: 'usINX',
+    sina: '.inx',
   },
 ]

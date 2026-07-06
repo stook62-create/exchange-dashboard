@@ -55,12 +55,14 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
       symbol: 'none',
       lineStyle: { width: 1.5, color },
       itemStyle: { color },
-    }))
+    })).filter((s) => s.data.some((v) => v != null))
+
+    const legendData = ['K线', ...maSeries.map((s) => s.name), '成交量']
 
     return {
       animation: true,
       legend: {
-        data: ['K线', ...MA_PERIODS.map((m) => m.key), '成交量'],
+        data: legendData,
         top: '2%',
         textStyle: { color: '#475569' },
       },
@@ -112,8 +114,6 @@ export default function ChartModal({ symbol, displaySymbol, name, onClose }) {
           axisLine: { onZero: false },
           splitLine: { show: false },
           axisLabel: { show: false },
-          min: 'dataMin',
-          max: 'dataMax',
         },
         {
           type: 'category',
